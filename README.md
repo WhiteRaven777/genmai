@@ -1,6 +1,10 @@
-# Genmai [![Build Status](https://travis-ci.org/naoina/genmai.png?branch=master)](https://travis-ci.org/naoina/genmai)
+# Genmai 
 
 Simple, better and easy-to-use ORM library for [Golang](http://golang.org/).
+
+## Note.
+This product is [naoina/genmai](https://github.com/naoina/genmai) original.   
+I'm adding some parts.
 
 ## Overview
 
@@ -10,6 +14,7 @@ Simple, better and easy-to-use ORM library for [Golang](http://golang.org/).
 * Query logging
 * Update/Insert/Delete hooks
 * Embedded struct
+* Execute query manually
 
 Database dialect currently supported are:
 
@@ -19,7 +24,7 @@ Database dialect currently supported are:
 
 ## Installation
 
-    go get -u github.com/naoina/genmai
+    go get -u github.com/WhiteRaven777/genmai
 
 ## Schema
 
@@ -60,7 +65,7 @@ import (
     _ "github.com/mattn/go-sqlite3"
     // _ "github.com/go-sql-driver/mysql"
     // _ "github.com/lib/pq"
-    "github.com/naoina/genmai"
+    "github.com/WhiteRaven777/genmai"
 )
 
 // define a table schema.
@@ -201,6 +206,16 @@ if err := db.Select(&results, db.OrderBy("id", genmai.ASC).Offset(2).Limit(10));
 fmt.Printf("%v\n", results)
 ```
 
+### Group by
+
+```go
+var results []TestTable
+if err := db.Select(&results, db.GroupBy("id")); err != nil {
+    panic(err)
+}
+fmt.Printf("%v\n", results)
+```
+
 ### Distinct
 
 ```go
@@ -246,7 +261,7 @@ import (
     _ "github.com/mattn/go-sqlite3"
     // _ "github.com/go-sql-driver/mysql"
     // _ "github.com/lib/pq"
-    "github.com/naoina/genmai"
+    "github.com/WhiteRaven777/genmai"
 )
 
 type TestTable struct {
@@ -363,7 +378,7 @@ if err := db.Begin(); err != nil {
 
 ### Using any table name
 
-You can implement [TableNamer](https://godoc.org/github.com/naoina/genmai#TableNamer) interface to use any table name.
+You can implement [TableNamer](https://godoc.org/github.com/WhiteRaven777/genmai#TableNamer) interface to use any table name.
 
 ```go
 type UserTable struct {
@@ -471,7 +486,7 @@ type User struct {
 }
 ```
 
-See the Godoc of [TimeStamp](http://godoc.org/github.com/naoina/genmai#TimeStamp) for more information.
+See the Godoc of [TimeStamp](http://godoc.org/github.com/WhiteRaven777/genmai#TimeStamp) for more information.
 
 If you'll override hook method defined in embedded struct, you'll should call the that hook in overridden method.
 For example in above struct case:
@@ -486,11 +501,117 @@ func (u *User) BeforeInsert() error {
 }
 ```
 
+## Execute query manually
+```go
+db, err := genmai.New(&genmai.SQLite3Dialect{}, ":memory:")
+if err != nil {
+    panic(err)
+}
+defer db.Close()
+
+defer func() {
+	if err := recover(); err != nil {
+		cc.DB.Rollback()
+	} else {
+		cc.DB.Commit()
+		ret = true
+	}
+}()
+
+if err := cc.DB.Begin(); err != nil {
+	panic(err)
+}
+
+// define a table schema.
+type TestTable struct {
+    Id        int64      `db:"pk" column:"tbl_id"`
+    Name      string     `default:"me"`
+    CreatedAt *time.Time
+    UserName  string     `db:"unique" size:"255"`
+    Active    bool       `db:"-"`
+}
+
+var query string
+
+query = `
+    INSERT INTO test_table (
+        id,
+        name,
+        created_at,
+        user_name,
+        active
+    ) VALUE (
+        ?,
+        ?,
+        ?,
+        ?,
+        ?
+    )`
+
+if _, err := db.Exec(
+    query,
+    1,
+    "alice",
+    *time.Now(),
+    "alice",
+    true,
+    ); err != nil {
+	panic(err)
+}
+
+// ---
+
+query = `
+    SELECT
+        id,
+        name,
+        created_at,
+        user_name,
+        active
+    FROM
+        test_table
+    WHERE
+        name = ?`
+
+var tast_table_list []TestTable
+if _, err := db.Query(query, "alice"); err == nil {
+    var tast_table TestTable
+	for rows.Next() {
+		if err = rows.Scan(
+			&tast_table.Id,
+			&tast_table.Name,
+			&tast_table.CreatedAt,
+			&tast_table.UserName,
+			&tast_table.Active,
+		); err != nil {
+			continue
+		}
+		tast_table_list = append(tast_table_list, tast_table)
+	}
+}
+
+// ---
+
+query = `
+    SELECT
+        count(id)
+    FROM
+        test_table
+    WHERE
+        name = ?`
+
+var cnt int
+if err := db.QueryRow(query, "alice").Scan(cnt); err != nil {
+    panic(err)
+}
+```
+
+
 ## Documentation
 
 API document and more examples are available here:
 
-http://godoc.org/github.com/naoina/genmai
+http://godoc.org/github.com/WhiteRaven777/genmai
 
 ## TODO
 

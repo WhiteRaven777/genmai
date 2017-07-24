@@ -138,6 +138,11 @@ func (db *DB) Where(cond interface{}, args ...interface{}) *Condition {
 	return newCondition(db).Where(cond, args...)
 }
 
+// GroupBy returns a new Condition of "GROUP BY" clause.
+func (db *DB) GroupBy(column interface{}) *Condition {
+	return newCondition(db).GroupBy(column)
+}
+
 // OrderBy returns a new Condition of "ORDER BY" clause.
 func (db *DB) OrderBy(table interface{}, column interface{}, order ...interface{}) *Condition {
 	return newCondition(db).OrderBy(table, column, order...)
@@ -479,6 +484,52 @@ func (db *DB) Delete(obj interface{}) (affected int64, err error) {
 		}
 	}
 	return affected, nil
+}
+
+// Exec executes a prepared statement with the given arguments and
+// returns a sql.Result summarizing the effect of the statement.
+func (db *DB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	stmt, err := db.prepare(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	result, err := stmt.Exec(args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, err
+}
+
+// Query executes a prepared query statement with the given arguments
+// and returns the query results as a *sql.Rows.
+func (db *DB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	stmt, err := db.prepare(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer stmt.Close()
+	result, err := stmt.Query(args...)
+	if err != nil {
+		return nil, err
+	}
+	return result, err
+}
+
+// QueryRow executes a query that is expected to return at most one row.
+// QueryRow always returns a non-nil value. Errors are deferred until
+// sql.Row's Scan method is called.
+func (db *DB) QueryRow(query string, args ...interface{}) (*sql.Row) {
+	stmt, err := db.prepare(query, args...)
+	if err != nil {
+		return nil
+	}
+	defer stmt.Close()
+	result := stmt.QueryRow(args...)
+	if err != nil {
+		return nil
+	}
+	return result
 }
 
 // Begin starts a transaction.
@@ -1031,6 +1082,8 @@ type Function struct {
 	Args []interface{}
 }
 
+type Group string
+
 // Order represents a keyword for the "ORDER" clause of SQL.
 type Order string
 
@@ -1050,6 +1103,7 @@ const (
 	Where Clause = iota
 	And
 	Or
+	GroupBy
 	OrderBy
 	Limit
 	Offset
@@ -1073,6 +1127,7 @@ var clauseStrings = []string{
 	Where:     "WHERE",
 	And:       "AND",
 	Or:        "OR",
+	GroupBy:   "GROUP BY",
 	OrderBy:   "ORDER BY",
 	Limit:     "LIMIT",
 	Offset:    "OFFSET",
@@ -1096,6 +1151,11 @@ type expr struct {
 	op     string      // operator.
 	column *column     // column name.
 	value  interface{} // value.
+}
+
+// groupBy represents a "GROUP BY" query.
+type groupBy struct {
+	column column // column name.
 }
 
 // orderBy represents a "ORDER BY" query.
@@ -1160,6 +1220,12 @@ func (c *Condition) IsNull() *Condition {
 // IsNotNull adds "IS NOT NULL" clause to the Condition and returns it for method chain.
 func (c *Condition) IsNotNull() *Condition {
 	return c.appendQuery(100, IsNotNull, nil)
+}
+
+// GroupBy adds "GROUP BY" clause to the Condition and returns it for method chain.
+func (c *Condition) GroupBy(col interface{}) *Condition {
+	groupbys := append(make([]groupBy, 0, 1), c.groupBy(col))
+	return c.appendQuery(250, GroupBy, groupbys)
 }
 
 // OrderBy adds "ORDER BY" clause to the Condition and returns it for method chain.
@@ -1255,6 +1321,15 @@ func (c *Condition) appendQueryByCondOrExpr(name string, order int, clause Claus
 	return c.appendQuery(order, clause, cond)
 }
 
+func (c *Condition) groupBy(col interface{}) groupBy {
+	o := groupBy{
+		column: column{
+			name: fmt.Sprint(col),
+		},
+	}
+	return o
+}
+
 func (c *Condition) orderBy(table, col, order interface{}) orderBy {
 	o := orderBy{
 		column: column{
@@ -1284,6 +1359,9 @@ func (c *Condition) build(numHolders int, inner bool) (queries []string, args []
 			queries = append(queries, col, e.op, c.db.dialect.PlaceHolder(numHolders))
 			args = append(args, e.value)
 			numHolders++
+		case []groupBy:
+			o := e[0]
+			queries = append(queries, ColumnName(c.db.dialect, o.column.table, o.column.name))
 		case []orderBy:
 			o := e[0]
 			queries = append(queries, ColumnName(c.db.dialect, o.column.table, o.column.name), o.order.String())
